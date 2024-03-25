@@ -31,7 +31,7 @@ def __lldb_init_module(debugger, dict):
 
 	attach_synthetic_to_type(DArrayPrinter, r'^_Array_|\[\]$', True)
 
-	attach_synthetic_to_type(DCStringPrinter, r'^_Array_char$|^_Array_char8_t$|^string$|^(const|immutable)?\(?char\)?\s*\[\]$', True)
+	attach_synthetic_to_type(DCStringPrinter, r'^_Array_char$|^_Array_char8_t$|^(const|immutable)?\(?string\)?$|^(const|immutable)?\(?char\)?\s*\[\]$', True)
 	attach_synthetic_to_type(DWStringPrinter, r'^_Array_wchar_t$|^_Array_char16_t$|^wstring$|^(const|immutable)?\(?wchar\)?\s*\[\]$', True)
 	attach_synthetic_to_type(DDStringPrinter, r'^_Array_dchar$|^dstring$|^(const|immutable)?\(?dchar\)?\s*\[\]$', True)
 	
@@ -99,8 +99,8 @@ def sequence_summary(array, clipsize=32, maxsize=100, shownames=False):
 			if shownames:
 				s += child.name + ' = '
 			s += get_obj_summary(child)
-	if len(s) > maxsize:
-		return '...'
+		if len(s) > maxsize:
+			return '...'
 	return s
 
 def get_array_summary(valobj):
@@ -111,7 +111,7 @@ def get_map_summary(valobj):
 
 class BaseSynthProvider(object):
 	def __init__(self, valobj, dict={}):
-		self.valobj = valobj
+		self.valobj: lldb.SBValue = valobj
 		self.initialize()
 	def initialize(self):
 		return None
@@ -246,14 +246,14 @@ class DDStringPrinter(DBaseStringPrinter):
 		return "d"
 
 class DAssocArrayPrinter(BaseSynthProvider):
-	"print D arrays"
+	"print D associative arrays"
 
 	def initialize(self):
 		self.target = self.valobj.target
 		self.voidPtr = self.target.FindFirstType("void").GetPointerType()
 		self.ptr = self.valobj.GetChildMemberWithName("ptr").Cast(self.voidPtr)
 		tag = self.valobj.type.name
-		if tag != None:
+		if tag:
 			if tag.startswith("_AArray_"):
 				self.parse_types_dmd(tag)
 			elif tag.endswith("]"):
@@ -374,6 +374,11 @@ class DAssocArrayPrinter(BaseSynthProvider):
 					summary = self.get_key_name(child, index)
 					if self.value_type.name == "void":
 						return child.CreateChildAtOffset(summary, self.valoff(), self.voidPtr).AddressOf().Cast(self.voidPtr)
+					elif self.value_type.GetTypeFlags() & lldb.eTypeIsClass and self.value_type.name != 'string':
+						child_value= child.CreateChildAtOffset(summary, self.valoff(), self.value_type.GetPointerType())
+						# if not child_value.GetType():
+							# child_value = child.CreateChildAtOffset(summary, self.valoff(), self.value_type)
+						return child_value
 					else:
 						return child.CreateChildAtOffset(summary, self.valoff(), self.value_type)
 				else:
